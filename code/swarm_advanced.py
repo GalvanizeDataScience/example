@@ -7,7 +7,7 @@ import numpy as np
 class Swarm(object):
     """INPUT:
     - cost_func_name(STR)
-        Name of the cost function. Implementing only 'griewank' now.
+        Name of the cost function. Now only 'griewank' implemented.
 
     - bounds(DICT)
         Each sublist has upper and lower bound of the feature.
@@ -28,13 +28,16 @@ class Swarm(object):
     def __init__(self, cost_func_name, bounds,
                  swarm_size=200, iter_stop=2000,
                  stray_rate=.05, learning_rate=.1,
-                 verbose=2):
+                 lowest_spawn=10, lowest_spawn_search=.05,
+                 verbose=1):
         self.cost_func_name = cost_func_name
         self.bounds = bounds
         self.swarm_size = swarm_size
         self.iter_stop = iter_stop
         self.stray_rate = stray_rate
         self.learning_rate = learning_rate
+        self.lowest_spawn = lowest_spawn
+        self.lowest_spawn_search = lowest_spawn_search
         self.verbose = verbose
 
         # Contains all the agents initialized
@@ -105,7 +108,7 @@ class Swarm(object):
             self.one_iteration()
             if self.verbose:
                 if self.verbose == 1:
-                    if i % 100 == 0:
+                    if i % 200 == 0:
                         self.print_output(i)
                 elif self.verbose == 2:
                     if i % 10 == 0:
@@ -136,6 +139,53 @@ class Swarm(object):
         # Update position of each agent based on best params and lowest_cost
         for agent in self.swarm:
             agent.update_params()
+            # The lowest agent search for lower cost nearby
+            self.lowest_agent_explore(lowest_cost_ind)
+
+    def bound_ranges(self):
+        """Ranges of each feature"""
+        return np.array([upper - lower for upper, lower in self.bounds])
+
+    def draw_epsilon(self, params_epsilon):
+        """Randomly decide how much the lowest agent explores within
+        predefined bounds"""
+        rand_eps_lst = []
+        for epsilon in params_epsilon:
+            if epsilon > 0:
+                rand_epsilon = npr.uniform(0, epsilon)
+            else:
+                rand_epsilon = npr.uniform(epsilon, 0)
+            rand_eps_lst.append(rand_epsilon)
+        return np.array(rand_eps_lst)
+
+    def check_within_bounds(self, params):
+        """Check if explored values are within param bounds"""
+        for i in range(len(params)):
+            lower = self.bounds[i][0]
+            upper = self.bounds[i][1]
+            return lower <= params[i] and upper >= params[i]
+
+    def lowest_agent_explore(self, lowest_cost_ind):
+        """Spawn random agents around the lowest agent.
+        If any of those have lower cost, return the more desirable params"""
+        bound_range_arr = self.bound_ranges()
+        spawned = 0
+        near_best_costs = []
+        while spawned < self.lowest_spawn:
+            params_epsilon = bound_range_arr * \
+                             self.lowest_spawn_search
+            rand_epsilon = self.draw_epsilon(params_epsilon)
+            near_best_params = self.best_params + rand_epsilon
+            within_bounds = self.check_within_bounds(near_best_params)
+            if within_bounds:
+                spawned += 1
+                near_best_costs.append(self.cost_func(near_best_params))
+        spawned_min_cost = min(near_best_costs)
+
+        # Reassign the lowest agent params and update lowest cost
+        if spawned_min_cost < self.lowest_cost:
+            self.swarm[lowest_cost_ind].params = near_best_params
+            self.lowest_cost = spawned_min_cost
 
     def find_lowest_cost_index(self):
         """Get the minimum cost in the current iteration"""
@@ -149,5 +199,6 @@ class Swarm(object):
 
 if __name__ == '__main__':
     griewank_swarm = Swarm('griewank', [[-600, 600]],
-                           iter_stop=100, verbose=1)
+                           iter_stop=100, verbose=1,
+                           lowest_spawn_search=.1, lowest_spawn=20)
     griewank_swarm.fit()
